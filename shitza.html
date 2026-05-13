@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Virtual Shower</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --blue-glow:rgba(80,180,255,0.6);
+  --green-glow:rgba(60,220,140,0.6);
+  --purple-glow:rgba(180,100,255,0.6);
+  --orange-glow:rgba(255,160,60,0.6);
+  --panel-bg:#090d12;
+  --tile-line:rgba(40,70,100,0.4);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:#050810;font-family:'Courier New',Courier,monospace}
+
+/* ── MAIN LAYOUT ── */
+#app{display:flex;flex-direction:column;width:100vw;height:100vh}
+#shower-zone{position:relative;flex:1;overflow:hidden;background:#040608}
+#controls-panel{
+  height:130px;flex-shrink:0;
+  background:var(--panel-bg);
+  border-top:1px solid rgba(60,120,200,0.25);
+  display:flex;flex-direction:column;
+  padding:10px 20px 8px;gap:8px;
+  position:relative;z-index:10
+}
+
+/* ── VIDEO ── */
+#video{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;transform:scaleX(-1);
+  filter:brightness(0.92) saturate(0.95)
+}
+
+/* ── CANVAS ── */
+#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+/* ── STEAM LAYER ── */
+#steam{
+  position:absolute;inset:0;pointer-events:none;
+  background:transparent;
+  transition:background 1.2s ease,backdrop-filter 1.5s ease,-webkit-backdrop-filter 1.5s ease
+}
+
+/* ── TILE OVERLAY ── */
+#tiles{
+  position:absolute;inset:0;pointer-events:none;
+  background-image:
+    linear-gradient(var(--tile-line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--tile-line) 1px,transparent 1px);
+  background-size:80px 80px;
+  opacity:0.18
+}
+
+/* ── HUD ── */
+#hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;padding:14px 18px;pointer-events:none;z-index:5}
+
+.hud-badge{
+  background:rgba(5,10,18,0.72);
+  border:1px solid rgba(80,140,220,0.35);
+  backdrop-filter:blur(4px);
+  border-radius:6px;padding:6px 14px;
+  font-size:12px;letter-spacing:2px;color:#5aadff;
+  display:flex;align-items:center;gap:8px
+}
+.hud-badge span{color:#fff;font-weight:700;font-size:14px}
+
+/* ── MSG TOAST ── */
+#msg{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  background:rgba(5,10,20,0.88);
+  border:1px solid rgba(80,160,255,0.45);
+  backdrop-filter:blur(8px);
+  border-radius:10px;padding:14px 28px;
+  font-size:16px;letter-spacing:0.5px;color:#b8e0ff;
+  text-align:center;max-width:420px;
+  display:none;z-index:20;pointer-events:none;
+  animation:fadeIn 0.3s ease
+}
+@keyframes fadeIn{from{opacity:0;transform:translate(-50%,-55%)}to{opacity:1;transform:translate(-50%,-50%)}}
+
+/* ── FAN WARNING ── */
+#fan-warn{
+  position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  background:rgba(255,130,20,0.92);color:#fff;
+  border-radius:6px;padding:7px 20px;font-size:13px;
+  letter-spacing:1px;display:none;z-index:20;
+  animation:blink 1.4s infinite
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.55}}
+
+/* ── FOAM LABEL ── */
+#foam-hud{
+  position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+  display:flex;gap:20px;pointer-events:none;z-index:5
+}
+.foam-pill{
+  background:rgba(5,10,20,0.75);border:1px solid rgba(100,180,255,0.3);
+  border-radius:20px;padding:5px 16px;font-size:11px;
+  letter-spacing:2px;color:#4488aa;transition:color 0.4s,border-color 0.4s
+}
+.foam-pill.active{color:#80ddff;border-color:rgba(100,200,255,0.7)}
+
+/* ── CONTROLS ROW ── */
+.row{display:flex;align-items:center;gap:12px}
+
+/* ── BUTTONS ── */
+.btn{
+  border:1px solid;border-radius:7px;
+  padding:9px 18px;font-size:12px;
+  font-family:'Courier New',monospace;
+  font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  cursor:pointer;transition:all 0.2s;white-space:nowrap;
+  position:relative;overflow:hidden
+}
+.btn::after{
+  content:'';position:absolute;inset:0;
+  background:rgba(255,255,255,0);transition:background 0.15s
+}
+.btn:active::after{background:rgba(255,255,255,0.08)}
+
+.btn-water{background:rgba(0,50,90,0.6);border-color:rgba(30,100,180,0.6);color:#5ab8ff}
+.btn-water.on{background:rgba(10,80,150,0.8);border-color:#5ab8ff;color:#fff;box-shadow:0 0 14px rgba(90,184,255,0.4)}
+.btn-fan{background:rgba(0,50,30,0.6);border-color:rgba(20,130,70,0.6);color:#50ffaa}
+.btn-fan.on{background:rgba(10,100,50,0.8);border-color:#50ffaa;color:#fff;box-shadow:0 0 14px rgba(80,255,170,0.4)}
+.btn-shampoo{background:rgba(50,10,80,0.6);border-color:rgba(130,40,200,0.5);color:#cc80ff}
+.btn-shampoo.on{background:rgba(90,20,140,0.8);border-color:#cc80ff;color:#fff;box-shadow:0 0 14px var(--purple-glow)}
+.btn-bodywash{background:rgba(70,25,0,0.6);border-color:rgba(180,80,20,0.5);color:#ffaa55}
+.btn-bodywash.on{background:rgba(130,50,10,0.8);border-color:#ffaa55;color:#fff;box-shadow:0 0 14px var(--orange-glow)}
+
+/* ── TEMP SLIDER ── */
+#temp-wrap{display:none;align-items:center;gap:8px;flex:1;max-width:260px}
+.temp-icon{font-size:15px;line-height:1}
+#temp-sl{
+  -webkit-appearance:none;flex:1;height:5px;border-radius:3px;
+  outline:none;cursor:pointer;
+  background:linear-gradient(to right,#1a55cc,#ff4520)
+}
+#temp-sl::-webkit-slider-thumb{
+  -webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+  background:#fff;border:2px solid #5ab8ff;cursor:pointer;transition:border-color 0.3s
+}
+#temp-sl::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid #5ab8ff;cursor:pointer}
+#temp-val{color:#aab8cc;font-size:12px;min-width:36px;text-align:right;letter-spacing:1px}
+
+/* ── STATUS ── */
+.status-area{display:flex;gap:14px;margin-left:auto;align-items:center}
+.st{font-size:11px;letter-spacing:1.5px;color:#2a4060}
+.st.active{color:#5ab8ff}
+
+/* ── SCENT PICKER ── */
+#scent-box{
+  position:absolute;bottom:138px;right:20px;
+  background:rgba(8,12,20,0.96);border:1px solid rgba(200,100,30,0.55);
+  border-radius:10px;padding:14px;display:none;flex-direction:column;gap:8px;
+  backdrop-filter:blur(10px);z-index:30
+}
+#scent-box.open{display:flex}
+.sc-title{color:#ffaa55;font-size:11px;letter-spacing:3px;text-align:center;margin-bottom:4px;text-transform:uppercase}
+.sc-btn{
+  background:rgba(160,70,20,0.18);border:1px solid rgba(255,150,60,0.25);
+  color:#ffcc90;padding:8px 20px;border-radius:6px;
+  cursor:pointer;font-size:13px;font-family:'Courier New',monospace;
+  letter-spacing:1px;transition:all 0.2s
+}
+.sc-btn:hover,.sc-btn.sel{background:rgba(160,70,20,0.45);border-color:#ffaa55;color:#fff}
+
+/* ── CAMERA PLACEHOLDER ── */
+#no-cam{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#060c14,#0a1020);color:#2a5080;
+  font-size:14px;letter-spacing:2px;gap:16px
+}
+#no-cam svg{opacity:0.3}
+
+/* ── FAN SPIN ANIMATION ── */
+.fan-spin{animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── SHOWER ZONE ── -->
+  <div id="shower-zone">
+    <div id="no-cam">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      카메라 권한을 허용해주세요
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="fx"></canvas>
+    <div id="steam"></div>
+    <div id="tiles"></div>
+
+    <div id="hud">
+      <div class="hud-badge">💧 습도 <span id="hud-hum">0</span>%</div>
+      <div class="hud-badge">🌡️ 수온 <span id="hud-temp">—</span></div>
+    </div>
+
+    <div id="fan-warn">⚠️ 습도가 높습니다 — 환풍기를 켜세요!</div>
+    <div id="msg"></div>
+
+    <div id="foam-hud">
+      <div class="foam-pill" id="pill-head">머리 거품 0%</div>
+      <div class="foam-pill" id="pill-body">몸 거품 0%</div>
+    </div>
+  </div>
+
+  <!-- ── CONTROLS ── -->
+  <div id="controls-panel">
+    <div class="row">
+      <button class="btn btn-water" id="btn-w" onclick="toggleWater()">🚿 물</button>
+
+      <div id="temp-wrap">
+        <span class="temp-icon">🧊</span>
+        <input type="range" id="temp-sl" min="0" max="100" value="50" step="1" oninput="setTemp(this.value)">
+        <span class="temp-icon">🔥</span>
+        <span id="temp-val">50°</span>
+      </div>
+
+      <button class="btn btn-fan" id="btn-f" onclick="toggleFan()">
+        <span id="fan-icon">💨</span> 환풍기
+      </button>
+      <button class="btn btn-shampoo" id="btn-sh" onclick="toggleShampoo()">🧴 샴푸</button>
+      <button class="btn btn-bodywash" id="btn-bw" onclick="toggleBodywash()">🧼 바디워시</button>
+
+      <div class="status-area">
+        <span class="st" id="st-head">머리: 0%</span>
+        <span class="st" id="st-body">몸: 0%</span>
+        <span class="st" id="st-scent"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCENT PICKER ── -->
+  <div id="scent-box">
+    <div class="sc-title">🌸 향 선택</div>
+    <button class="sc-btn" onclick="pickScent('코튼',this)">☁️ 코튼 (Cotton)</button>
+    <button class="sc-btn" onclick="pickScent('시트러스',this)">🍋 시트러스 (Citrus)</button>
+    <button class="sc-btn" onclick="pickScent('머스크',this)">🌿 머스크 (Musk)</button>
+  </div>
+
+</div>
+
+<script>
+/* ════════════════════════════════════════
+   STATE
+════════════════════════════════════════ */
+const S = {
+  waterOn:false, temp:50,
+  fanOn:false, shampooing:false, bodyWashing:false,
+  scent:null,
+  headFoam:0, bodyFoam:0,
+  blur:0,
+  mHead:0, mBody:0,
+};
+
+/* ════════════════════════════════════════
+   CANVAS & VIDEO
+════════════════════════════════════════ */
+const video  = document.getElementById('video');
+const canvas = document.getElementById('fx');
+const ctx    = canvas.getContext('2d');
+
+const mcv  = document.createElement('canvas');
+const mctx = mcv.getContext('2d', {willReadFrequently:true});
+mcv.width = 160; mcv.height = 120;
+
+let prevPx = null;
+
+function resize(){
+  const z = document.getElementById('shower-zone');
+  canvas.width  = z.clientWidth;
+  canvas.height = z.clientHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ════════════════════════════════════════
+   WEBCAM
+════════════════════════════════════════ */
+(async()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false});
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('no-cam').style.display = 'none';
+  } catch(e){
+    console.warn('Camera:', e);
+  }
+})();
+
+/* ════════════════════════════════════════
+   WATER PARTICLES
+════════════════════════════════════════ */
+let drops = [];
+
+function spawnDrops(){
+  for(let i=0;i<10;i++){
+    const hot = S.temp/100;
+    drops.push({
+      x: Math.random()*canvas.width,
+      y: -8,
+      vy: 5+Math.random()*5,
+      vx: (Math.random()-0.5)*1.2,
+      r:  1.5+Math.random()*3,
+      a:  0.65+Math.random()*0.3,
+      hot,
+    });
+  }
+}
+
+function tickDrops(){
+  drops = drops.filter(d=>{
+    d.y += d.vy; d.x += d.vx;
+    if(d.y > canvas.height*0.88) d.a -= 0.06;
+    return d.a>0 && d.y<canvas.height+10;
+  });
+}
+
+function drawDrops(){
+  drops.forEach(d=>{
+    const h = d.hot;
+    const cr = Math.round(50+h*200), cg=Math.round(140+h*40), cb=Math.round(255-h*210);
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${cr},${cg},${cb},${d.a})`;
+    ctx.fill();
+  });
+}
+
+/* ════════════════════════════════════════
+   FOAM BUBBLES
+════════════════════════════════════════ */
+let bubbles = [];
+
+function addBubbles(zone, intensity){
+  const n = Math.min(12, Math.ceil(intensity*25)+1);
+  const W = canvas.width, H = canvas.height;
+  for(let i=0;i<n;i++){
+    let x, y;
+    if(zone==='head'){
+      x = W*0.5 + (Math.random()-0.5)*W*0.28;
+      y = H*0.08 + Math.random()*H*0.22;
+    } else {
+      x = W*0.5 + (Math.random()-0.5)*W*0.36;
+      y = H*0.38 + Math.random()*H*0.38;
+    }
+    bubbles.push({
+      x, y, zone,
+      r:  5+Math.random()*14,
+      a:  0.45+Math.random()*0.4,
+      vx: (Math.random()-0.5)*0.4,
+      vy: -Math.random()*0.25-0.05,
+    });
+  }
+  if(bubbles.length>350) bubbles=bubbles.slice(-350);
+}
+
+function drawBubbles(){
+  bubbles = bubbles.filter(b=>{
+    b.x+=b.vx; b.y+=b.vy;
+    if(S.waterOn) b.a-=0.014;
+    else b.a-=0.001;
+    if(b.a<=0) return false;
+
+    const g=ctx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.35,0,b.x,b.y,b.r);
+    g.addColorStop(0,`rgba(255,255,255,${b.a})`);
+    g.addColorStop(0.55,`rgba(210,235,255,${b.a*0.75})`);
+    g.addColorStop(1,`rgba(170,210,255,${b.a*0.05})`);
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fillStyle=g; ctx.fill();
+    ctx.strokeStyle=`rgba(200,230,255,${b.a*0.35})`;
+    ctx.lineWidth=0.5; ctx.stroke();
+    return true;
+  });
+}
+
+/* ════════════════════════════════════════
+   STEAM
+════════════════════════════════════════ */
+function tickSteam(){
+  const steamEl=document.getElementById('steam');
+  if(S.waterOn && S.temp>38){
+    const hot=(S.temp-38)/62;
+    const rate = S.fanOn ? 0 : hot*0.35;
+    S.blur=Math.min(100,S.blur+rate);
+  }
+  if(!S.waterOn){
+    const decay=S.fanOn?0.7:0.12;
+    S.blur=Math.max(0,S.blur-decay);
+  }
+  if(S.fanOn && S.waterOn && S.temp>38){
+    // fan fights steam
+    const hot=(S.temp-38)/62;
+    S.blur=Math.min(100,S.blur+hot*0.1); // still rises but slower
+  }
+  if(S.fanOn && !S.waterOn){
+    S.blur=Math.max(0,S.blur-0.7);
+  }
+
+  const bl=(S.blur/100)*14;
+  const op=(S.blur/100)*0.48;
+  steamEl.style.backdropFilter=`blur(${bl}px)`;
+  steamEl.style.webkitBackdropFilter=`blur(${bl}px)`;
+  steamEl.style.background=`rgba(195,218,248,${op})`;
+
+  document.getElementById('hud-hum').textContent=Math.round(S.blur);
+  document.getElementById('fan-warn').style.display=(S.blur>62&&!S.fanOn)?'block':'none';
+}
+
+/* ════════════════════════════════════════
+   MOTION DETECTION
+════════════════════════════════════════ */
+function detectMotion(){
+  if(!video.videoWidth||!video.videoHeight) return;
+  mctx.save();
+  mctx.scale(-1,1);
+  mctx.drawImage(video,-mcv.width,0,mcv.width,mcv.height);
+  mctx.restore();
+  const cur=mctx.getImageData(0,0,mcv.width,mcv.height);
+  if(prevPx){
+    let mh=0, mb=0;
+    const hEnd=Math.floor(mcv.height*0.38);
+    const bSt =Math.floor(mcv.height*0.22);
+    for(let y=0;y<mcv.height;y++){
+      for(let x=0;x<mcv.width;x++){
+        const i=(y*mcv.width+x)*4;
+        const d=Math.abs(cur.data[i]-prevPx[i])+
+                Math.abs(cur.data[i+1]-prevPx[i+1])+
+                Math.abs(cur.data[i+2]-prevPx[i+2]);
+        if(d>28){
+          if(y<hEnd) mh++;
+          if(y>bSt)  mb++;
+        }
+      }
+    }
+    S.mHead=mh/(hEnd*mcv.width);
+    S.mBody=mb/((mcv.height-bSt)*mcv.width);
+
+    if(S.shampooing && S.mHead>0.018){
+      S.headFoam=Math.min(100,S.headFoam+S.mHead*280);
+      addBubbles('head',S.mHead);
+    }
+    if(S.bodyWashing && S.scent && S.mBody>0.018){
+      S.bodyFoam=Math.min(100,S.bodyFoam+S.mBody*200);
+      addBubbles('body',S.mBody);
+    }
+
+    // Water rinses foam
+    if(S.waterOn){
+      S.headFoam=Math.max(0,S.headFoam-0.6);
+      S.bodyFoam=Math.max(0,S.bodyFoam-0.5);
+    }
+    // Natural foam dissipation
+    S.headFoam=Math.max(0,S.headFoam-0.03);
+    S.bodyFoam=Math.max(0,S.bodyFoam-0.02);
+  }
+  prevPx=cur.data.slice();
+}
+
+/* ════════════════════════════════════════
+   SPLASH FX (water-on-body)
+════════════════════════════════════════ */
+let splashes=[];
+function addSplash(x,y){
+  for(let i=0;i<6;i++){
+    const a=Math.random()*Math.PI*2;
+    const v=1+Math.random()*2;
+    splashes.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-1,a:0.7,r:2+Math.random()*2});
+  }
+}
+function drawSplashes(){
+  splashes=splashes.filter(s=>{
+    s.x+=s.vx;s.y+=s.vy;s.vy+=0.12;s.a-=0.04;
+    if(s.a<=0)return false;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(130,200,255,${s.a})`;ctx.fill();
+    return true;
+  });
+}
+
+/* ════════════════════════════════════════
+   MAIN LOOP
+════════════════════════════════════════ */
+let frame=0;
+function loop(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  frame++;
+
+  if(frame%3===0) detectMotion();
+
+  if(S.waterOn) spawnDrops();
+  tickDrops();
+  drawDrops();
+
+  // Random splashes when water on
+  if(S.waterOn && Math.random()<0.05){
+    addSplash(canvas.width*(0.3+Math.random()*0.4), canvas.height*(0.4+Math.random()*0.4));
+  }
+  drawSplashes();
+  drawBubbles();
+  tickSteam();
+  updateHUD();
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+function updateHUD(){
+  const ph=document.getElementById('pill-head');
+  const pb=document.getElementById('pill-body');
+  const sh=Math.round(S.headFoam);
+  const sb=Math.round(S.bodyFoam);
+  ph.textContent=`머리 거품 ${sh}%`;
+  pb.textContent=`몸 거품 ${sb}%`;
+  ph.className='foam-pill'+(sh>2?' active':'');
+  pb.className='foam-pill'+(sb>2?' active':'');
+
+  const sth=document.getElementById('st-head');
+  const stb=document.getElementById('st-body');
+  sth.textContent=`머리:${sh}%`;sth.className='st'+(sh>2?' active':'');
+  stb.textContent=`몸:${sb}%`;stb.className='st'+(sb>2?' active':'');
+
+  const tv=document.getElementById('hud-temp');
+  if(S.waterOn){
+    const t=S.temp;
+    tv.textContent = t<25?`${t}° 🧊` : t>72?`${t}° 🔥` : `${t}°`;
+    tv.style.color  = t>72?'#ff7040': t<25?'#60c0ff':'#ffffff';
+  } else {
+    tv.textContent='—'; tv.style.color='';
+  }
+}
+
+/* ════════════════════════════════════════
+   UI ACTIONS
+════════════════════════════════════════ */
+let msgTmr=null;
+function showMsg(txt,dur=3200){
+  const el=document.getElementById('msg');
+  el.textContent=txt; el.style.display='block';
+  clearTimeout(msgTmr);
+  if(dur>0) msgTmr=setTimeout(()=>{el.style.display='none';},dur);
+}
+
+function toggleWater(){
+  S.waterOn=!S.waterOn;
+  document.getElementById('btn-w').className='btn btn-water'+(S.waterOn?' on':'');
+  const tw=document.getElementById('temp-wrap');
+  tw.style.display=S.waterOn?'flex':'none';
+  if(S.waterOn) showMsg('🚿 물이 켜졌습니다. 온도를 조절해보세요!');
+  else showMsg('🚿 물이 꺼졌습니다.');
+}
+
+function setTemp(v){
+  S.temp=parseInt(v);
+  document.getElementById('temp-val').textContent=v+'°';
+  document.getElementById('temp-val').style.color=
+    v>70?'#ff6040':v<28?'#70c0ff':'#aab8cc';
+}
+
+function toggleFan(){
+  S.fanOn=!S.fanOn;
+  document.getElementById('btn-f').className='btn btn-fan'+(S.fanOn?' on':'');
+  const ico=document.getElementById('fan-icon');
+  if(S.fanOn){
+    ico.className='fan-spin';
+    showMsg('💨 환풍기가 켜졌습니다. 습기를 빠르게 제거합니다!');
+  } else {
+    ico.className='';
+    showMsg('환풍기가 꺼졌습니다.');
+  }
+}
+
+function toggleShampoo(){
+  S.shampooing=!S.shampooing;
+  if(S.shampooing){S.bodyWashing=false;document.getElementById('scent-box').classList.remove('open');}
+  document.getElementById('btn-sh').className='btn btn-shampoo'+(S.shampooing?' on':'');
+  document.getElementById('btn-bw').className='btn btn-bodywash';
+  if(S.shampooing) showMsg('🧴 샴푸 모드! 손으로 머리를 문질러 거품을 만들어보세요 ✨',4500);
+}
+
+function toggleBodywash(){
+  S.bodyWashing=!S.bodyWashing;
+  if(S.bodyWashing){S.shampooing=false;}
+  document.getElementById('btn-bw').className='btn btn-bodywash'+(S.bodyWashing?' on':'');
+  document.getElementById('btn-sh').className='btn btn-shampoo';
+  const sb=document.getElementById('scent-box');
+  if(S.bodyWashing) sb.classList.add('open');
+  else sb.classList.remove('open');
+  if(S.bodyWashing) showMsg('🧼 바디워시 향을 선택해주세요!');
+}
+
+function pickScent(name,el){
+  S.scent=name;
+  document.querySelectorAll('.sc-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('st-scent').textContent='향: '+name;
+  document.getElementById('st-scent').style.color='#ffaa55';
+  showMsg(`🌸 ${name} 향 선택! 손으로 몸을 닦으면 거품이 생겨요 ✨`,4000);
+}
+
+/* ── Close scent box when clicking outside ── */
+document.addEventListener('click',e=>{
+  const sb=document.getElementById('scent-box');
+  const bw=document.getElementById('btn-bw');
+  if(!sb.contains(e.target)&&e.target!==bw) sb.classList.remove('open');
+});
+</script>
+</body>
+</html>
